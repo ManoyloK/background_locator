@@ -23,11 +23,12 @@ internal fun IsolateHolderService.startLocatorService(context: Context) {
                     Keys.SHARED_PREFERENCES_KEY,
                     Context.MODE_PRIVATE)
                     .getLong(Keys.CALLBACK_DISPATCHER_HANDLE_KEY, 0)
-            val callbackInfo = FlutterCallbackInformation.lookupCallbackInformation(callbackHandle)
 
             // We need flutter engine to handle callback, so if it is not available we have to create a
             // Flutter engine without any view
             IsolateHolderService.backgroundEngine = FlutterEngine(context)
+
+            val callbackInfo = FlutterCallbackInformation.lookupCallbackInformation(callbackHandle)
 
             val args = DartExecutor.DartCallback(
                     context.assets,
