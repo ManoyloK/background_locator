@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:ffi';
 import 'dart:isolate';
 import 'dart:ui';
 
@@ -9,7 +8,7 @@ import 'package:background_locator/settings/android_settings.dart';
 import 'package:background_locator/settings/ios_settings.dart';
 import 'package:background_locator/settings/locator_settings.dart';
 import 'package:flutter/material.dart';
-import 'package:location_permissions/location_permissions.dart';
+import 'package:permission_handler/permission_handler.dart';
 
 import 'file_manager.dart';
 import 'location_callback_handler.dart';
@@ -26,8 +25,8 @@ class _MyAppState extends State<MyApp> {
   ReceivePort port = ReceivePort();
 
   String logStr = '';
-  bool isRunning;
-  LocationDto lastLocation;
+  bool isRunning = false;
+  LocationDto? lastLocation;
 
   @override
   void initState() {
@@ -56,10 +55,10 @@ class _MyAppState extends State<MyApp> {
     super.dispose();
   }
 
-  Future<void> updateUI(LocationDto data) async {
+  Future<void> updateUI(LocationDto? data) async {
     final log = await FileManager.readLogFile();
 
-    await _updateNotificationText(data);
+    if (data != null) await _updateNotificationText(data);
 
     setState(() {
       if (data != null) {
@@ -70,10 +69,6 @@ class _MyAppState extends State<MyApp> {
   }
 
   Future<void> _updateNotificationText(LocationDto data) async {
-    if (data == null) {
-      return;
-    }
-
     await BackgroundLocator.updateNotificationText(
         title: "new location received",
         msg: "${DateTime.now()}",
@@ -125,13 +120,13 @@ class _MyAppState extends State<MyApp> {
       ),
     );
     String msgStatus = "-";
-    if (isRunning != null) {
-      if (isRunning) {
-        msgStatus = 'Is running';
-      } else {
-        msgStatus = 'Is not running';
-      }
+
+    if (isRunning) {
+      msgStatus = 'Is running';
+    } else {
+      msgStatus = 'Is not running';
     }
+
     final status = Text("Status: $msgStatus");
 
     final log = Text(
@@ -180,51 +175,61 @@ class _MyAppState extends State<MyApp> {
   }
 
   Future<bool> _checkLocationPermission() async {
-    final access = await LocationPermissions().checkPermissionStatus();
-    switch (access) {
-      case PermissionStatus.unknown:
-      case PermissionStatus.denied:
-      case PermissionStatus.restricted:
-        final permission = await LocationPermissions().requestPermissions(
-          permissionLevel: LocationPermissionLevel.locationAlways,
-        );
-        if (permission == PermissionStatus.granted) {
-          return true;
-        } else {
-          return false;
-        }
-        break;
-      case PermissionStatus.granted:
+    try {
+      /// Check service
+      /// Check Permission
+      PermissionStatus status = await Permission.location.status;
+      PermissionStatus statusAlways = await Permission.locationAlways.status;
+      if (statusAlways.isGranted) {
         return true;
-        break;
-      default:
+      }
+      if (status.isDenied) {
+        /// Request if Denied
+        status = await Permission.location.request();
+      }
+      // At first, make request for foreground location access.
+      // And then you can request background location access.
+      if (status.isGranted) {
+        if (!statusAlways.isGranted) {
+          statusAlways = await Permission.locationAlways.request();
+          statusAlways = await Permission.locationAlways.status;
+        }
+      }
+      if (statusAlways.isGranted) {
+        return true;
+      } else {
         return false;
-        break;
+      }
+    } catch (e) {
+      return false;
     }
   }
 
-  Future<void> _startLocator() async{
+  Future<void> _startLocator() async {
     Map<String, dynamic> data = {'countInit': 1};
-    return await BackgroundLocator.registerLocationUpdate(LocationCallbackHandler.callback,
-        initCallback: LocationCallbackHandler.initCallback,
-        initDataCallback: data,
-        disposeCallback: LocationCallbackHandler.disposeCallback,
-        iosSettings: IOSSettings(
-            accuracy: LocationAccuracy.NAVIGATION, distanceFilter: 0),
-        autoStop: false,
-        androidSettings: AndroidSettings(
-            accuracy: LocationAccuracy.NAVIGATION,
-            interval: 5,
-            distanceFilter: 0,
-            client: LocationClient.google,
-            androidNotificationSettings: AndroidNotificationSettings(
-                notificationChannelName: 'Location tracking',
-                notificationTitle: 'Start Location Tracking',
-                notificationMsg: 'Track location in background',
-                notificationBigMsg:
-                    'Background location is on to keep the app up-tp-date with your location. This is required for main features to work properly when the app is not running.',
-                notificationIconColor: Colors.grey,
-                notificationTapCallback:
-                    LocationCallbackHandler.notificationCallback)));
+    return await BackgroundLocator.registerLocationUpdate(
+      LocationCallbackHandler.callback,
+      initCallback: LocationCallbackHandler.initCallback,
+      initDataCallback: data,
+      disposeCallback: LocationCallbackHandler.disposeCallback,
+      iosSettings:
+          IOSSettings(accuracy: LocationAccuracy.NAVIGATION, distanceFilter: 0),
+      autoStop: false,
+      androidSettings: AndroidSettings(
+        accuracy: LocationAccuracy.NAVIGATION,
+        interval: 5,
+        distanceFilter: 0,
+        client: LocationClient.google,
+        androidNotificationSettings: AndroidNotificationSettings(
+            notificationChannelName: 'Location tracking',
+            notificationTitle: 'Start Location Tracking',
+            notificationMsg: 'Track location in background',
+            notificationBigMsg:
+                'Background location is on to keep the app up-tp-date with your location. This is required for main features to work properly when the app is not running.',
+            notificationIconColor: Colors.grey,
+            notificationTapCallback:
+                LocationCallbackHandler.notificationCallback),
+      ),
+    );
   }
 }
